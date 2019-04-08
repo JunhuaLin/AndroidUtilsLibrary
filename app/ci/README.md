@@ -6,7 +6,7 @@
 在app下的`build.gradle`中添加
 
 ```groovy
-apply from: 'http://gitlab.jfz.net/Android/Android-Dependencies/raw/master/CI/CITool.gradle'
+apply from: 'CITool.gradle'
 ```
 citool需要依赖versionName字段命名apk包
 
