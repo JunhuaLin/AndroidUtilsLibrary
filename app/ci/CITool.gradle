@@ -1,0 +1,241 @@
+import java.text.SimpleDateFormat
+
+def CI_TOOL_TASK_GROUP = "CITool"
+
+configurations {
+    ftpAntTask
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    //https://ant.apache.org/manual/Tasks/ftp.html 文档
+    ftpAntTask("org.apache.ant:ant-commons-net:1.8.4") {
+        module("commons-net:commons-net:1.4.1") {
+            dependencies "oro:oro:2.0.8:jar"
+        }
+    }
+}
+
+def parseCiConfig() {
+    //优先从项目中获取参数配置信息，否则动态从环境变量获取参数
+    def ci_config_json = [
+            appStoreConfig: null,
+            ftpConfig     : null,
+    ]
+
+    if (rootProject.hasProperty("ciConfig")) {
+        ci_config_json = rootProject.ciConfig
+    }
+
+    //app store 配置
+    if (ci_config_json.appStoreConfig == null) {
+        ci_config_json.appStoreConfig = [
+                app_store_url: System.getenv("app_store_url"),
+                token        : System.getenv("store_token"),
+                plat_id      : [
+                        debug  : System.getenv("plat_id_debug"),//android线下
+                        release: System.getenv("plat_id_release")//android线上
+                ]
+        ]
+    }
+
+    //ftp 配置
+    if (ci_config_json.ftpConfig == null) {
+        ci_config_json.ftpConfig = [
+                ftp_ip       : System.getenv("ftp_ip"),
+                ftp_username : System.getenv("ftp_username"),
+                ftp_userpwd  : System.getenv("ftp_userpwd"),
+                apk_save_path: [
+                        debug  : System.getenv("apk_save_path_debug"), //debug
+                        release: System.getenv("apk_save_path_release") //release
+                ]
+        ]
+    }
+
+    if (ci_config_json.appStoreConfig == null) {
+        throw IllegalArgumentException("请为配置CITool工具配置appStoreConfig信息，文档地址：http://gitlab.jfz.net/Android/Android-Dependencies/tree/master/CI")
+    }
+
+    if (ci_config_json.ftpConfig == null) {
+        throw IllegalArgumentException("请为配置CITool工具配置ftpConfig信息，文档地址：http://gitlab.jfz.net/Android/Android-Dependencies/tree/master/CI")
+    }
+
+    return ci_config_json
+}
+
+def doIterateApkFile(File rootDirTemp, Closure closure) {
+    if (!rootDirTemp.exists()) {
+        return
+    }
+
+    File[] files = rootDirTemp.listFiles()
+    for (File file : files) {
+        if (file.isDirectory()) {
+            doIterateApkFile(file, closure)
+        } else if (file.name.endsWith(".apk")) {
+            if (closure != null) {
+                closure(file)
+            }
+        }
+    }
+}
+
+def iterateApkFile(Closure closure) {
+    doIterateApkFile(new File(project.buildDir, "/outputs/apk/"), closure)
+}
+
+def upload2AppStore(apkFile, env) {
+    def appStoreConfig = parseCiConfig().appStoreConfig
+
+    def plat_id = appStoreConfig.plat_id.debug
+    if (paresEnvParams(apkFile).indexOf("release") >= 0) {
+        plat_id = appStoreConfig.plat_id.release
+    }
+
+    println "appstore plat id:" + plat_id + " token:" + appStoreConfig.token
+
+    def fileStr = "file=\"@${apkFile.getAbsolutePath()}\""
+    if (env == 1) {
+        fileStr = "file=@${apkFile.getAbsolutePath()}"
+    }
+    ["curl",
+     "--form", "plat_id=${plat_id}",
+     "--form", "token=${appStoreConfig.token}",
+     "--form", fileStr,
+     appStoreConfig.app_store_url].execute().text
+
+    println apkFile.getAbsolutePath()
+    println "upload to AppStore: ${appStoreConfig.app_store_url}"
+}
+
+/**
+ * 根据文件夹路径解析出apk是哪个环境
+ * @param file
+ * @return
+ */
+static def paresEnvParams(File file) {
+    if (file == null || !file.exists()) {
+        return null
+    }
+
+    String parentPath = file.getAbsolutePath()
+    if (file.isFile()) {
+        parentPath = file.getParentFile().getAbsolutePath()
+    }
+
+    List<String> pathSectionList = Arrays.asList(parentPath.split("(\\\\)|(/)"))
+    pathSectionList = pathSectionList.subList(pathSectionList.indexOf("apk") + 1, pathSectionList.size())
+    return new ArrayList<String>(pathSectionList)
+}
+
+task formatApkName() {
+    group CI_TOOL_TASK_GROUP
+    description '重命名Apk，格式为CI-test-app1_v5.4.0_20190327_145906.apk'
+
+    doLast {
+        iterateApkFile { File apkFile ->
+            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss")
+            String oldName = apkFile.name.split("\\.")[0]
+            List<String> envParam = paresEnvParams(apkFile)
+            if (envParam != null && !envParam.isEmpty()) {
+                envParam.add(0, "app")
+                oldName = envParam.join("-")
+            }
+
+            def BUILD_NUMBER = System.getenv("BUILD_NUMBER")
+            if (BUILD_NUMBER == null) {
+                BUILD_NUMBER = 0
+            }
+
+            String newName = "CI-${BUILD_NUMBER}_${oldName}_v${rootProject.android.versionName}_${simpleDateFormat.format(new Date())}.apk"
+            File newApkFile = new File(apkFile.getParentFile(), newName)
+            apkFile.renameTo(newApkFile)
+
+            println newApkFile.toString()
+        }
+    }
+}
+
+task uploadApk2Ftp() {
+    group CI_TOOL_TASK_GROUP
+    description '上传apk文件到公司ftp服务'
+
+    doLast {
+        def ftpConfig = parseCiConfig().ftpConfig
+        iterateApkFile { File apkFile ->
+
+            def localApkDir = apkFile.getParentFile().getAbsolutePath()
+            def versionNameFile = "v${rootProject.android.versionName}"
+
+            def apkSavePathTemp = ftpConfig.apk_save_path.debug
+            if (paresEnvParams(apkFile).indexOf("release") >= 0) {
+                apkSavePathTemp = ftpConfig.apk_save_path.release
+            }
+
+            apkSavePathTemp = "${apkSavePathTemp}/${versionNameFile}/"
+
+            //上传至FTP
+            ant {
+                taskdef(name: 'ftp',
+                        classname: 'org.apache.tools.ant.taskdefs.optional.net.FTP',
+                        classpath: configurations.ftpAntTask.asPath)
+
+
+                println "ftp config:" + ftpConfig.ftp_ip + " name:" + ftpConfig.ftp_username + " apkSavePathTemp:" + apkSavePathTemp
+
+                //创建对应文件夹
+                ftp(action: "mkdir",
+                        server: ftpConfig.ftp_ip,
+                        userid: ftpConfig.ftp_username,
+                        password: ftpConfig.ftp_userpwd,
+                        remoteDir: apkSavePathTemp)
+                //上传apk对应目录
+                ftp(server: ftpConfig.ftp_ip,
+                        userid: ftpConfig.ftp_username,
+                        password: ftpConfig.ftp_userpwd,
+                        remoteDir: apkSavePathTemp) {
+                    fileset(dir: localApkDir) {
+                        include(name: "*.apk")
+                    }
+                }
+            }
+
+            println apkFile.getAbsolutePath()
+            println "upload to ftp:" + apkSavePathTemp
+        }
+    }
+}
+
+task uploadApk2AppStore() {
+    group CI_TOOL_TASK_GROUP
+    description '上传apk文件到公司AppStore,需要在命令行里执行(暂时没有发现为什么不能双击直接执行)'
+
+    doLast {
+        iterateApkFile { File apkFile ->
+            upload2AppStore(apkFile, 0)
+        }
+    }
+}
+
+task uploadApk2AppStoreMacEnv() {
+    group CI_TOOL_TASK_GROUP
+    description '上传apk文件到公司AppStore,需要在命令行里执行(暂时没有发现为什么不能双击直接执行)'
+
+    doLast {
+        iterateApkFile { File apkFile ->
+            upload2AppStore(apkFile, 1)
+        }
+    }
+}
+
+task printCIConfig() {
+    group CI_TOOL_TASK_GROUP
+    description '输出CiTool的配置信息'
+
+    doLast {
+        println parseCiConfig()
+    }
+}
