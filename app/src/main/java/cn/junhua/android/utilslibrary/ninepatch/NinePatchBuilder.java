@@ -20,18 +20,18 @@ import java.util.ArrayList;
  * There are J horizontal and K vertical segments.  These segments divide
  * the image into J*K regions as follows (where J=4 and K=3):
  * <p>
- * F0   S0    F1     S1
- * +-----+----+------+-------+
+ *      F0   S0    F1     S1
+ *   +-----+----+------+-------+
  * S2|  0  |  1 |  2   |   3   |
- * +-----+----+------+-------+
- * |     |    |      |       |
- * |     |    |      |       |
+ *   +-----+----+------+-------+
+ *   |     |    |      |       |
+ *   |     |    |      |       |
  * F2|  4  |  5 |  6   |   7   |
- * |     |    |      |       |
- * |     |    |      |       |
- * +-----+----+------+-------+
+ *   |     |    |      |       |
+ *   |     |    |      |       |
+ *   +-----+----+------+-------+
  * S3|  8  |  9 |  10  |   11  |
- * +-----+----+------+-------+
+ *   +-----+----+------+-------+
  * <p>
  * Each horizontal and vertical segment is considered to by either
  * stretchable (marked by the Sx labels) or fixed (marked by the Fy
