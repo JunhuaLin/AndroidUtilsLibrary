@@ -61,7 +61,7 @@ public class BezierInterpolator implements Interpolator
 	private void initBezierPath()
 	{
 		Path path = new Path();
-		path.cubicTo(x1, y1, x2, y2, 1, 1);
+		path.cubicTo(x1, y1, x2, y2, 1.0f, 1.0f);
 		mBezierPathMeasure = new PathMeasure(path, false);
 		mBezierLength = mBezierPathMeasure.getLength();
 	}
