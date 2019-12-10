@@ -12,3 +12,7 @@
     
 * interpolator
    * [BezierInterpolator](https://github.com/JunhuaLin/AndroidUtilsLibrary/blob/master/app/src/main/java/cn/junhua/android/utilslibrary/interpolator/BezierInterpolator.java) - 基于贝塞尔曲线的动画插值器,可以实现任何常见插值器效果。
+   
+   
+* 点9图
+   * [NinePatchBuilder](https://github.com/JunhuaLin/AndroidUtilsLibrary/blob/master/app/src/main/java/cn/junhua/android/utilslibrary/ninepatch/NinePatchBuilder.java) - 动态构建bitmap图片的拉伸区域，生成NinePatchDrawable，即动态生成点9图。 
